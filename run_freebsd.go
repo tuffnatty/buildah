@@ -256,6 +256,21 @@ func (b *Builder) Run(command []string, options RunOptions) error {
 		SystemContext:    options.SystemContext,
 	}
 
+	// When running in a jail, we can't change devfs_ruleset for a nested jail.
+	// Patch the spec to avoid mount error.
+	devfs_ruleset, err := unix.SysctlUint32("security.jail.devfs_ruleset")
+	if err != nil || devfs_ruleset == 0 {
+		devfs_ruleset = 4
+	} else {
+		for i := range spec.Mounts {
+			for j := range spec.Mounts[i].Options {
+				if spec.Mounts[i].Options[j] == "ruleset=4" {
+					spec.Mounts[i].Options[j] = fmt.Sprintf("ruleset=%d", devfs_ruleset)
+				}
+			}
+		}
+	}
+
 	runArtifacts, err := b.setupMounts(mountPoint, spec, path, options.Mounts, bindFiles, volumes, options.CompatBuiltinVolumes, b.CommonBuildOpts.Volumes, options.RunMounts, runMountInfo)
 	if err != nil {
 		return fmt.Errorf("resolving mountpoints for container %q: %w", b.ContainerID, err)
@@ -293,7 +308,7 @@ func (b *Builder) Run(command []string, options RunOptions) error {
 		jconf.Set("children.max", 1)
 		jconf.Set("persist", true)
 		jconf.Set("enforce_statfs", 0)
-		jconf.Set("devfs_ruleset", 4)
+		jconf.Set("devfs_ruleset", devfs_ruleset)
 		jconf.Set("allow.raw_sockets", true)
 		jconf.Set("allow.chflags", true)
 		jconf.Set("securelevel", -1)
